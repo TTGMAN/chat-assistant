@@ -12,6 +12,7 @@ interface Message {
 
 export const ChatWidget = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const [showGreeting, setShowGreeting] = useState(true);
   const [messages, setMessages] = useState<Message[]>([
     { text: "Hi! How can I help you today?", isBot: true },
   ]);
@@ -25,6 +26,15 @@ export const ChatWidget = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    // Hide greeting after 5 seconds
+    const timer = setTimeout(() => {
+      setShowGreeting(false);
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleSend = () => {
     if (!input.trim()) return;
@@ -50,6 +60,14 @@ export const ChatWidget = () => {
           isOpen ? "w-[380px] h-[600px]" : "w-14 h-14"
         )}
       >
+        {/* Initial Greeting Message */}
+        {showGreeting && !isOpen && (
+          <div className="absolute bottom-20 right-0 bg-white p-4 rounded-lg shadow-lg border border-gray-200 mb-2 w-64">
+            <p className="text-sm">Hi! How can I help you today?</p>
+            <div className="absolute -bottom-2 right-6 w-4 h-4 bg-white transform rotate-45 border-r border-b border-gray-200"></div>
+          </div>
+        )}
+
         {/* Main Chat Container */}
         <div
           className={cn(
