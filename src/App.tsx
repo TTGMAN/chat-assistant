@@ -1,27 +1,22 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Index from "./pages/Index";
-import NotFound from "./pages/NotFound";
+import { ChatWidget } from "./components/ChatWidget";
+import { ScrollPrompt } from "./components/ScrollPrompt";
+import { useState } from "react";
 
-const queryClient = new QueryClient();
+const App = () => {
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+  return (
+    <div className="min-h-[200vh]">
+      <ChatWidget />
+      <ScrollPrompt onOpenChat={() => setIsChatOpen(true)} />
+      
+      {/* Your main content here */}
+      <div className="container mx-auto p-4">
+        <h1 className="text-4xl font-bold mb-4">Welcome to Our Site</h1>
+        <p className="text-gray-600">Scroll down to see the chat prompt!</p>
+      </div>
+    </div>
+  );
+};
 
 export default App;
