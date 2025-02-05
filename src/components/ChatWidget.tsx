@@ -12,7 +12,7 @@ interface Message {
 
 export const ChatWidget = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const [showGreeting, setShowGreeting] = useState(true);
+  const [showGreeting, setShowGreeting] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     { text: "Hi! How can I help you today?", isBot: true },
   ]);
@@ -28,13 +28,19 @@ export const ChatWidget = () => {
   }, [messages]);
 
   useEffect(() => {
-    // Hide greeting after 5 seconds
-    const timer = setTimeout(() => {
-      setShowGreeting(false);
-    }, 5000);
+    const handleScroll = () => {
+      const scrollPosition = window.scrollY;
+      const windowWidth = window.innerWidth;
+      const scrollThreshold = windowWidth * 0.5; // 50% of screen width
 
-    return () => clearTimeout(timer);
-  }, []);
+      if (scrollPosition > scrollThreshold && !showGreeting && !isOpen) {
+        setShowGreeting(true);
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [showGreeting, isOpen]);
 
   const handleSend = () => {
     if (!input.trim()) return;
@@ -63,7 +69,15 @@ export const ChatWidget = () => {
         {/* Initial Greeting Message */}
         {showGreeting && !isOpen && (
           <div className="absolute bottom-20 right-0 bg-white p-4 rounded-lg shadow-lg border border-gray-200 mb-2 w-64">
-            <p className="text-sm">Hi! How can I help you today?</p>
+            <div className="flex justify-between items-start mb-2">
+              <p className="text-sm">Hi! How can I help you today?</p>
+              <button
+                onClick={() => setShowGreeting(false)}
+                className="text-gray-400 hover:text-gray-600 -mt-1"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
             <div className="absolute -bottom-2 right-6 w-4 h-4 bg-white transform rotate-45 border-r border-b border-gray-200"></div>
           </div>
         )}
