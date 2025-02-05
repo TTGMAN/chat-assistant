@@ -1,4 +1,3 @@
-import React from "react";
 import { cn } from "@/lib/utils";
 
 interface ChatMessageProps {
@@ -10,20 +9,24 @@ export const ChatMessage = ({ message, isBot }: ChatMessageProps) => {
   return (
     <div
       className={cn(
-        "flex w-full mb-4",
-        isBot ? "justify-start" : "justify-end"
+        "relative max-w-[80%] rounded-lg p-3",
+        isBot
+          ? "bg-white text-gray-900 ml-2"
+          : "bg-blue-500 text-white ml-auto mr-2"
       )}
     >
+      {/* Message content */}
+      <div className="relative z-10">{message}</div>
+
+      {/* Triangle pointer */}
       <div
         className={cn(
-          "max-w-[80%] rounded-2xl px-4 py-2",
+          "absolute w-0 h-0 border-8",
           isBot
-            ? "bg-gray-100 text-gray-800"
-            : "bg-blue-500 text-white"
+            ? "border-l-white -right-4 top-4 border-t-transparent border-r-transparent border-b-transparent"
+            : "border-r-blue-500 -left-4 top-4 border-t-transparent border-l-transparent border-b-transparent"
         )}
-      >
-        {message}
-      </div>
+      />
     </div>
   );
 };
