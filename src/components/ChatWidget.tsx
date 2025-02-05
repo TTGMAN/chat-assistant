@@ -57,6 +57,11 @@ export const ChatWidget = () => {
     }, 1000);
   };
 
+  const handleStartChat = () => {
+    setIsOpen(true);
+    setShowGreeting(false);
+  };
+
   return (
     <>
       {/* Chat Widget */}
@@ -78,6 +83,13 @@ export const ChatWidget = () => {
                 <X className="h-4 w-4" />
               </button>
             </div>
+            <Button 
+              onClick={handleStartChat}
+              variant="default" 
+              className="w-full mt-2"
+            >
+              Start Chat
+            </Button>
             <div className="absolute -bottom-2 right-6 w-4 h-4 bg-white transform rotate-45 border-r border-b border-gray-200"></div>
           </div>
         )}
