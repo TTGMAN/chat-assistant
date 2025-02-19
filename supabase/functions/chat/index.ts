@@ -9,13 +9,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Initialize Supabase client
-const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-const availableSlots = ["09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00"];
-
 interface BookingState {
   step: 'initial' | 'date' | 'time' | 'title' | 'email' | 'confirm';
   date?: Date;
@@ -25,14 +18,38 @@ interface BookingState {
 }
 
 serve(async (req) => {
+  console.log('Received request:', req.method);
+
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { message, state } = await req.json();
-    console.log('Received message:', message, 'Current state:', state);
+    // Verify content type
+    const contentType = req.headers.get('content-type');
+    if (!contentType?.includes('application/json')) {
+      throw new Error('Content-Type must be application/json');
+    }
+
+    // Parse request body
+    let body;
+    try {
+      body = await req.json();
+      console.log('Parsed request body:', body);
+    } catch (e) {
+      console.error('JSON parsing error:', e);
+      throw new Error('Invalid JSON payload');
+    }
+
+    const { message, state } = body;
+
+    // Validate required fields
+    if (!message) {
+      throw new Error('Message is required');
+    }
+
+    console.log('Processing message:', message, 'Current state:', state);
 
     let bookingState: BookingState = state || { step: 'initial' };
     let reply = '';
@@ -51,18 +68,22 @@ serve(async (req) => {
       case 'date':
         let date: Date | undefined;
         
-        if (message.toLowerCase().includes('tomorrow')) {
-          date = addDays(new Date(), 1);
-        } else if (message.toLowerCase().includes('next')) {
-          date = addDays(new Date(), 7);
-        } else {
-          // Try to parse the date
-          date = parse(message, 'MM/dd/yyyy', new Date());
+        try {
+          if (message.toLowerCase().includes('tomorrow')) {
+            date = addDays(new Date(), 1);
+          } else if (message.toLowerCase().includes('next')) {
+            date = addDays(new Date(), 7);
+          } else {
+            date = parse(message, 'MM/dd/yyyy', new Date());
+          }
+        } catch (e) {
+          console.error('Date parsing error:', e);
+          date = undefined;
         }
 
-        if (isValid(date)) {
+        if (date && isValid(date)) {
           bookingState.date = date;
-          reply = `Perfect! I can offer these time slots on ${date.toLocaleDateString()}: ${availableSlots.join(', ')}. Which time works best for you?`;
+          reply = `Perfect! I can offer these time slots on ${date.toLocaleDateString()}: 09:00, 10:00, 11:00, 13:00, 14:00, 15:00, 16:00. Which time works best for you?`;
           bookingState.step = 'time';
         } else {
           reply = "I couldn't understand that date. Please provide a date in MM/DD/YYYY format, or say 'tomorrow' or 'next week'.";
@@ -70,7 +91,9 @@ serve(async (req) => {
         break;
 
       case 'time':
+        const availableSlots = ["09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00"];
         const selectedTime = availableSlots.find(slot => message.includes(slot));
+        
         if (selectedTime) {
           bookingState.time = selectedTime;
           reply = "Great choice! Please provide a brief title for your appointment.";
@@ -99,21 +122,26 @@ serve(async (req) => {
       case 'confirm':
         if (message.toLowerCase().includes('yes')) {
           try {
-            // Create the booking
-            const [hours, minutes] = bookingState.time!.split(':');
-            const startTime = set(bookingState.date!, {
+            if (!bookingState.date || !bookingState.time) {
+              throw new Error('Missing booking details');
+            }
+
+            const [hours, minutes] = bookingState.time.split(':');
+            const startTime = set(bookingState.date, {
               hours: parseInt(hours),
               minutes: parseInt(minutes),
               seconds: 0,
               milliseconds: 0
             });
-            const endTime = set(bookingState.date!, {
+            
+            const endTime = set(bookingState.date, {
               hours: parseInt(hours) + 1,
               minutes: parseInt(minutes),
               seconds: 0,
               milliseconds: 0
             });
 
+            // Create the booking
             const { data, error } = await supabase
               .from('calendar_bookings')
               .insert([
@@ -125,8 +153,12 @@ serve(async (req) => {
                 }
               ]);
 
-            if (error) throw error;
+            if (error) {
+              console.error('Supabase error:', error);
+              throw error;
+            }
 
+            console.log('Booking created:', data);
             reply = "Perfect! Your appointment has been booked. You'll receive a confirmation email shortly. Is there anything else I can help you with?";
             bookingState = { step: 'initial' }; // Reset state
           } catch (error) {
@@ -138,7 +170,13 @@ serve(async (req) => {
           bookingState = { step: 'date' };
         }
         break;
+
+      default:
+        reply = "I can help you book an appointment. Would you like to schedule one?";
+        bookingState = { step: 'initial' };
     }
+
+    console.log('Sending response:', { reply, state: bookingState });
 
     return new Response(
       JSON.stringify({ 
@@ -146,16 +184,24 @@ serve(async (req) => {
         state: bookingState
       }), 
       {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'application/json' 
+        },
       }
     );
   } catch (error) {
     console.error('Error in chat function:', error);
     return new Response(
-      JSON.stringify({ error: 'An error occurred while processing your request' }), 
+      JSON.stringify({ 
+        error: error instanceof Error ? error.message : 'An error occurred while processing your request'
+      }), 
       {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'application/json' 
+        },
       }
     );
   }
