@@ -1,9 +1,11 @@
+
 import React, { useState, useRef, useEffect } from "react";
 import { ChatMessage } from "./ChatMessage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { X, MessageCircle, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Message {
   text: string;
@@ -17,6 +19,7 @@ export const ChatWidget = () => {
     { text: "Hi! How can I help you today?", isBot: true },
   ]);
   const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -31,7 +34,7 @@ export const ChatWidget = () => {
     const handleScroll = () => {
       const scrollPosition = window.scrollY;
       const windowWidth = window.innerWidth;
-      const scrollThreshold = windowWidth * 0.5; // 50% of screen width
+      const scrollThreshold = windowWidth * 0.5;
 
       if (scrollPosition > scrollThreshold && !showGreeting && !isOpen) {
         setShowGreeting(true);
@@ -42,19 +45,31 @@ export const ChatWidget = () => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, [showGreeting, isOpen]);
 
-  const handleSend = () => {
-    if (!input.trim()) return;
+  const handleSend = async () => {
+    if (!input.trim() || isLoading) return;
 
-    setMessages((prev) => [...prev, { text: input, isBot: false }]);
+    const userMessage = input.trim();
+    setMessages((prev) => [...prev, { text: userMessage, isBot: false }]);
     setInput("");
+    setIsLoading(true);
 
-    // Simulate bot response
-    setTimeout(() => {
+    try {
+      const { data, error } = await supabase.functions.invoke('chat', {
+        body: { message: userMessage },
+      });
+
+      if (error) throw error;
+
+      setMessages((prev) => [...prev, { text: data.reply, isBot: true }]);
+    } catch (error) {
+      console.error('Error sending message:', error);
       setMessages((prev) => [
         ...prev,
-        { text: "Thanks for your message! I'll get back to you soon.", isBot: true },
+        { text: "Sorry, I'm having trouble responding right now. Please try again later.", isBot: true },
       ]);
-    }, 1000);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleStartChat = () => {
@@ -64,14 +79,12 @@ export const ChatWidget = () => {
 
   return (
     <>
-      {/* Chat Widget */}
       <div
         className={cn(
           "fixed bottom-5 right-5 z-50 transition-all duration-300 ease-in-out",
           isOpen ? "w-[380px] h-[600px]" : "w-14 h-14"
         )}
       >
-        {/* Initial Greeting Message */}
         {showGreeting && !isOpen && (
           <div className="absolute bottom-20 right-0 bg-white p-4 rounded-lg shadow-lg border border-gray-200 mb-2 w-64">
             <div className="flex justify-between items-start mb-2">
@@ -94,7 +107,6 @@ export const ChatWidget = () => {
           </div>
         )}
 
-        {/* Main Chat Container */}
         <div
           className={cn(
             "bg-white rounded-2xl shadow-xl transition-all duration-300 ease-in-out overflow-hidden",
@@ -106,7 +118,6 @@ export const ChatWidget = () => {
         >
           {isOpen ? (
             <>
-              {/* Header */}
               <div className="p-4 bg-blue-500 text-white flex justify-between items-center">
                 <h3 className="font-semibold">Chat Support</h3>
                 <Button
@@ -119,7 +130,6 @@ export const ChatWidget = () => {
                 </Button>
               </div>
 
-              {/* Messages Container */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.map((msg, idx) => (
                   <ChatMessage key={idx} message={msg.text} isBot={msg.isBot} />
@@ -127,7 +137,6 @@ export const ChatWidget = () => {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Input Area */}
               <div className="p-4 border-t border-gray-200 flex gap-2">
                 <Input
                   value={input}
@@ -135,8 +144,13 @@ export const ChatWidget = () => {
                   placeholder="Type a message..."
                   className="flex-1"
                   onKeyPress={(e) => e.key === "Enter" && handleSend()}
+                  disabled={isLoading}
                 />
-                <Button onClick={handleSend} size="icon">
+                <Button 
+                  onClick={handleSend} 
+                  size="icon"
+                  disabled={isLoading}
+                >
                   <Send className="h-4 w-4" />
                 </Button>
               </div>
