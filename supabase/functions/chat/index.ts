@@ -8,19 +8,27 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
+  console.log('Chat function called');
+  
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, {
+      headers: corsHeaders,
+      status: 200,
+    });
   }
 
   try {
     const { message } = await req.json();
+    console.log('Received message:', message);
+    
     const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-
     if (!openAIApiKey) {
+      console.error('OpenAI API key not found');
       throw new Error('OpenAI API key not configured');
     }
 
+    console.log('Calling OpenAI API...');
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -43,16 +51,29 @@ serve(async (req) => {
     });
 
     const data = await response.json();
+    console.log('OpenAI response received');
+    
     const reply = data.choices[0].message.content;
 
     return new Response(JSON.stringify({ reply }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { 
+        ...corsHeaders, 
+        'Content-Type': 'application/json' 
+      },
+      status: 200,
     });
   } catch (error) {
     console.error('Error in chat function:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    return new Response(
+      JSON.stringify({ 
+        error: error.message,
+        details: error.stack 
+      }), {
+        status: 500,
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'application/json' 
+        },
     });
   }
 });
