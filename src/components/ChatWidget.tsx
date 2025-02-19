@@ -16,7 +16,7 @@ export const ChatWidget = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [showGreeting, setShowGreeting] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
-    { text: "Hi! How can I help you today?", isBot: true },
+    { text: "Hi! I can help you book an appointment. Would you like to schedule one?", isBot: true },
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -88,7 +88,7 @@ export const ChatWidget = () => {
         {showGreeting && !isOpen && (
           <div className="absolute bottom-20 right-0 bg-white p-4 rounded-lg shadow-lg border border-gray-200 mb-2 w-64">
             <div className="flex justify-between items-start mb-2">
-              <p className="text-sm">Hi! How can I help you today?</p>
+              <p className="text-sm">Would you like to book an appointment?</p>
               <button
                 onClick={() => setShowGreeting(false)}
                 className="text-gray-400 hover:text-gray-600 -mt-1"
@@ -119,7 +119,7 @@ export const ChatWidget = () => {
           {isOpen ? (
             <>
               <div className="p-4 bg-blue-500 text-white flex justify-between items-center">
-                <h3 className="font-semibold">Chat Support</h3>
+                <h3 className="font-semibold">Booking Assistant</h3>
                 <Button
                   variant="ghost"
                   size="icon"
