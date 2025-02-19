@@ -20,6 +20,7 @@ export const ChatWidget = () => {
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [bookingState, setBookingState] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -55,12 +56,16 @@ export const ChatWidget = () => {
 
     try {
       const { data, error } = await supabase.functions.invoke('chat', {
-        body: { message: userMessage },
+        body: { 
+          message: userMessage,
+          state: bookingState
+        },
       });
 
       if (error) throw error;
 
       setMessages((prev) => [...prev, { text: data.reply, isBot: true }]);
+      setBookingState(data.state);
     } catch (error) {
       console.error('Error sending message:', error);
       setMessages((prev) => [
