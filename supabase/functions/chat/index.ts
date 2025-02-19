@@ -1,8 +1,7 @@
-
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
-import { parse, addDays, isValid, parseISO, set, format } from "https://esm.sh/date-fns@2.30.0";
+import { parse, addDays, isValid, parseISO, set, format, isBefore, isToday } from "https://esm.sh/date-fns@2.30.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,10 +10,25 @@ const corsHeaders = {
 
 interface BookingState {
   step: 'initial' | 'date' | 'time' | 'title' | 'email' | 'confirm';
-  date?: string; // Changed from Date to string
+  date?: string;
   time?: string;
   title?: string;
   email?: string;
+}
+
+const isTimeSlotAvailable = (date: Date, hour: number): boolean => {
+  const now = new Date();
+  const slotTime = set(date, { hours: hour, minutes: 0, seconds: 0, milliseconds: 0 });
+  
+  if (isToday(date)) {
+    return !isBefore(slotTime, now);
+  }
+  
+  return true;
+}
+
+const formatTimeSlot = (hour: number): string => {
+  return `${hour.toString().padStart(2, '0')}:00`;
 }
 
 serve(async (req) => {
@@ -77,9 +91,24 @@ serve(async (req) => {
         }
 
         if (parsedDate && isValid(parsedDate)) {
-          // Store date as ISO string
+          if (isBefore(parsedDate, new Date()) && !isToday(parsedDate)) {
+            reply = "Sorry, you can't book appointments in the past. Please choose a future date.";
+            break;
+          }
+
           bookingState.date = parsedDate.toISOString();
-          reply = `Perfect! I can offer these time slots on ${format(parsedDate, 'MM/dd/yyyy')}: 09:00, 10:00, 11:00, 13:00, 14:00, 15:00, 16:00. Which time works best for you?`;
+          
+          const hours = [9, 10, 11, 13, 14, 15, 16];
+          const availableSlots = hours
+            .filter(hour => isTimeSlotAvailable(parsedDate!, hour))
+            .map(hour => formatTimeSlot(hour));
+
+          if (availableSlots.length === 0) {
+            reply = "Sorry, there are no available time slots for this date. Please choose another date.";
+            break;
+          }
+
+          reply = `Perfect! I can offer these time slots on ${format(parsedDate, 'MM/dd/yyyy')}: ${availableSlots.map(slot => slot.split(':')[0]).join(', ')}. Which hour works best for you?`;
           bookingState.step = 'time';
         } else {
           reply = "I couldn't understand that date. Please provide a date in MM/DD/YYYY format, or say 'tomorrow' or 'next week'.";
@@ -87,15 +116,24 @@ serve(async (req) => {
         break;
 
       case 'time':
-        const availableSlots = ["09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00"];
-        const selectedTime = availableSlots.find(slot => message.includes(slot));
+        const timeInput = message.trim().replace(/[^\d]/g, '');
+        const hour = parseInt(timeInput);
+        const availableHours = [9, 10, 11, 13, 14, 15, 16];
         
-        if (selectedTime) {
-          bookingState.time = selectedTime;
+        if (availableHours.includes(hour)) {
+          const timeSlot = formatTimeSlot(hour);
+          const bookingDate = parseISO(bookingState.date!);
+          
+          if (!isTimeSlotAvailable(bookingDate, hour)) {
+            reply = "Sorry, this time slot is no longer available. Please choose another time.";
+            break;
+          }
+          
+          bookingState.time = timeSlot;
           reply = "Great choice! Please provide a brief title for your appointment.";
           bookingState.step = 'title';
         } else {
-          reply = `Please select from these available times: ${availableSlots.join(', ')}`;
+          reply = `Please select from these available hours: ${availableHours.join(', ')}`;
         }
         break;
 
