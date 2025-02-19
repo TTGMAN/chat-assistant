@@ -2,7 +2,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
-import { parse, addDays, isValid, parseISO, set } from "https://esm.sh/date-fns@2.30.0";
+import { parse, addDays, isValid, parseISO, set, format } from "https://esm.sh/date-fns@2.30.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,7 +11,7 @@ const corsHeaders = {
 
 interface BookingState {
   step: 'initial' | 'date' | 'time' | 'title' | 'email' | 'confirm';
-  date?: Date;
+  date?: string; // Changed from Date to string
   time?: string;
   title?: string;
   email?: string;
@@ -20,19 +20,16 @@ interface BookingState {
 serve(async (req) => {
   console.log('Received request:', req.method);
 
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // Verify content type
     const contentType = req.headers.get('content-type');
     if (!contentType?.includes('application/json')) {
       throw new Error('Content-Type must be application/json');
     }
 
-    // Parse request body
     let body;
     try {
       body = await req.json();
@@ -44,7 +41,6 @@ serve(async (req) => {
 
     const { message, state } = body;
 
-    // Validate required fields
     if (!message) {
       throw new Error('Message is required');
     }
@@ -54,7 +50,6 @@ serve(async (req) => {
     let bookingState: BookingState = state || { step: 'initial' };
     let reply = '';
 
-    // Process message based on current step
     switch (bookingState.step) {
       case 'initial':
         if (message.toLowerCase().includes('yes') || message.toLowerCase().includes('book') || message.toLowerCase().includes('appointment')) {
@@ -66,24 +61,25 @@ serve(async (req) => {
         break;
 
       case 'date':
-        let date: Date | undefined;
+        let parsedDate: Date | undefined;
         
         try {
           if (message.toLowerCase().includes('tomorrow')) {
-            date = addDays(new Date(), 1);
+            parsedDate = addDays(new Date(), 1);
           } else if (message.toLowerCase().includes('next')) {
-            date = addDays(new Date(), 7);
+            parsedDate = addDays(new Date(), 7);
           } else {
-            date = parse(message, 'MM/dd/yyyy', new Date());
+            parsedDate = parse(message, 'MM/dd/yyyy', new Date());
           }
         } catch (e) {
           console.error('Date parsing error:', e);
-          date = undefined;
+          parsedDate = undefined;
         }
 
-        if (date && isValid(date)) {
-          bookingState.date = date;
-          reply = `Perfect! I can offer these time slots on ${date.toLocaleDateString()}: 09:00, 10:00, 11:00, 13:00, 14:00, 15:00, 16:00. Which time works best for you?`;
+        if (parsedDate && isValid(parsedDate)) {
+          // Store date as ISO string
+          bookingState.date = parsedDate.toISOString();
+          reply = `Perfect! I can offer these time slots on ${format(parsedDate, 'MM/dd/yyyy')}: 09:00, 10:00, 11:00, 13:00, 14:00, 15:00, 16:00. Which time works best for you?`;
           bookingState.step = 'time';
         } else {
           reply = "I couldn't understand that date. Please provide a date in MM/DD/YYYY format, or say 'tomorrow' or 'next week'.";
@@ -112,7 +108,8 @@ serve(async (req) => {
       case 'email':
         if (message.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
           bookingState.email = message;
-          reply = `Great! Let me confirm your booking:\nDate: ${bookingState.date?.toLocaleDateString()}\nTime: ${bookingState.time}\nTitle: ${bookingState.title}\nEmail: ${bookingState.email}\n\nWould you like me to confirm this booking? (Yes/No)`;
+          const bookingDate = parseISO(bookingState.date!);
+          reply = `Great! Let me confirm your booking:\nDate: ${format(bookingDate, 'MM/dd/yyyy')}\nTime: ${bookingState.time}\nTitle: ${bookingState.title}\nEmail: ${bookingState.email}\n\nWould you like me to confirm this booking? (Yes/No)`;
           bookingState.step = 'confirm';
         } else {
           reply = "That doesn't look like a valid email address. Please try again.";
@@ -126,22 +123,22 @@ serve(async (req) => {
               throw new Error('Missing booking details');
             }
 
+            const bookingDate = parseISO(bookingState.date);
             const [hours, minutes] = bookingState.time.split(':');
-            const startTime = set(bookingState.date, {
+            const startTime = set(bookingDate, {
               hours: parseInt(hours),
               minutes: parseInt(minutes),
               seconds: 0,
               milliseconds: 0
             });
             
-            const endTime = set(bookingState.date, {
+            const endTime = set(bookingDate, {
               hours: parseInt(hours) + 1,
               minutes: parseInt(minutes),
               seconds: 0,
               milliseconds: 0
             });
 
-            // Create the booking
             const { data, error } = await supabase
               .from('calendar_bookings')
               .insert([
@@ -160,7 +157,7 @@ serve(async (req) => {
 
             console.log('Booking created:', data);
             reply = "Perfect! Your appointment has been booked. You'll receive a confirmation email shortly. Is there anything else I can help you with?";
-            bookingState = { step: 'initial' }; // Reset state
+            bookingState = { step: 'initial' };
           } catch (error) {
             console.error('Booking error:', error);
             reply = "I'm sorry, there was an error creating your booking. Please try again.";
