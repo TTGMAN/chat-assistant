@@ -1,3 +1,4 @@
+
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
@@ -8,6 +9,11 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Initialize Supabase client
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const supabase = createClient(supabaseUrl, supabaseKey);
+
 interface BookingState {
   step: 'initial' | 'date' | 'time' | 'title' | 'email' | 'confirm';
   date?: string;
@@ -16,6 +22,7 @@ interface BookingState {
   email?: string;
 }
 
+// Helper function to validate if a time slot is available
 const isTimeSlotAvailable = (date: Date, hour: number): boolean => {
   const now = new Date();
   const slotTime = set(date, { hours: hour, minutes: 0, seconds: 0, milliseconds: 0 });
@@ -27,6 +34,7 @@ const isTimeSlotAvailable = (date: Date, hour: number): boolean => {
   return true;
 }
 
+// Helper function to format hour to time string
 const formatTimeSlot = (hour: number): string => {
   return `${hour.toString().padStart(2, '0')}:00`;
 }
@@ -175,6 +183,13 @@ serve(async (req) => {
               minutes: parseInt(minutes),
               seconds: 0,
               milliseconds: 0
+            });
+
+            console.log('Attempting to create booking:', {
+              title: bookingState.title,
+              start_time: startTime.toISOString(),
+              end_time: endTime.toISOString(),
+              booker_email: bookingState.email,
             });
 
             const { data, error } = await supabase
