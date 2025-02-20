@@ -192,8 +192,6 @@ serve(async (req) => {
               status: 'pending'
             };
 
-            console.log('About to insert booking with data:', bookingData);
-
             // First check if the slot is already booked
             const { data: existingBookings, error: checkError } = await supabase
               .from('calendar_bookings')
@@ -224,13 +222,33 @@ serve(async (req) => {
               throw error;
             }
 
-            console.log('Successfully inserted booking:', data);
+            // Create Google Calendar event
+            try {
+              const response = await fetch(
+                `${supabaseUrl}/functions/v1/google-calendar`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${supabaseKey}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    action: 'createEvent',
+                    bookingData
+                  })
+                }
+              );
 
-            if (!data || data.length === 0) {
-              throw new Error('No data returned after insert');
+              if (!response.ok) {
+                console.error('Failed to create Google Calendar event:', await response.text());
+              } else {
+                console.log('Google Calendar event created successfully');
+              }
+            } catch (calendarError) {
+              console.error('Error creating Google Calendar event:', calendarError);
             }
 
-            reply = "Perfect! Your appointment has been booked. You'll receive a confirmation email shortly. Is there anything else I can help you with?";
+            reply = "Perfect! Your appointment has been booked and added to the calendar. You'll receive a confirmation email shortly. Is there anything else I can help you with?";
             bookingState = { step: 'initial' };
           } catch (error) {
             console.error('Full booking error:', error);
