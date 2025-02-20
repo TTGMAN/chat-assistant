@@ -9,14 +9,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Initialize Supabase client with strict type checking
-const supabaseUrl = Deno.env.get('SUPABASE_URL');
-const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Required environment variables SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are not set');
-}
-
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 interface BookingState {
@@ -195,31 +189,53 @@ serve(async (req) => {
               start_time: startTime.toISOString(),
               end_time: endTime.toISOString(),
               booker_email: bookingState.email,
+              status: 'pending'
             };
 
-            console.log('Attempting to create booking:', bookingData);
+            console.log('About to insert booking with data:', bookingData);
 
+            // First check if the slot is already booked
+            const { data: existingBookings, error: checkError } = await supabase
+              .from('calendar_bookings')
+              .select('*')
+              .eq('start_time', startTime.toISOString())
+              .eq('end_time', endTime.toISOString());
+
+            if (checkError) {
+              console.error('Error checking existing bookings:', checkError);
+              throw checkError;
+            }
+
+            if (existingBookings && existingBookings.length > 0) {
+              console.log('Time slot already booked:', existingBookings);
+              reply = "I'm sorry, but this time slot has just been taken. Please choose another time.";
+              bookingState.step = 'time';
+              break;
+            }
+
+            // Insert the new booking
             const { data, error } = await supabase
               .from('calendar_bookings')
               .insert([bookingData])
               .select();
 
             if (error) {
-              console.error('Supabase error:', error);
+              console.error('Error inserting booking:', error);
               throw error;
             }
+
+            console.log('Successfully inserted booking:', data);
 
             if (!data || data.length === 0) {
               throw new Error('No data returned after insert');
             }
 
-            console.log('Booking created successfully:', data);
             reply = "Perfect! Your appointment has been booked. You'll receive a confirmation email shortly. Is there anything else I can help you with?";
             bookingState = { step: 'initial' };
           } catch (error) {
-            console.error('Booking error:', error);
+            console.error('Full booking error:', error);
             reply = "I'm sorry, there was an error creating your booking. Please try again.";
-            bookingState = { step: 'date' }; // Reset to date selection on error
+            bookingState = { step: 'date' };
           }
         } else {
           reply = "No problem! Let's start over. What date would you like to book?";
