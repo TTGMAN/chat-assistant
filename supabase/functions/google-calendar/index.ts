@@ -32,9 +32,11 @@ serve(async (req) => {
 
     switch (action) {
       case 'getAuthUrl':
-        const authUrl = await oauth2Client.code.getAuthorizationUri();
+        const authUrlObj = await oauth2Client.code.getAuthorizationUri();
+        // Convert the URL object to a string
+        const authUrl = authUrlObj.toString();
         return new Response(
-          JSON.stringify({ url: authUrl.toString() }),
+          JSON.stringify({ url: authUrl }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
 
