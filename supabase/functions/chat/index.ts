@@ -1,4 +1,3 @@
-
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
@@ -222,9 +221,9 @@ serve(async (req) => {
               throw error;
             }
 
-            // Create Google Calendar event
+            // Get Google Calendar authorization URL
             try {
-              const response = await fetch(
+              const authResponse = await fetch(
                 `${supabaseUrl}/functions/v1/google-calendar`,
                 {
                   method: 'POST',
@@ -232,24 +231,22 @@ serve(async (req) => {
                     'Authorization': `Bearer ${supabaseKey}`,
                     'Content-Type': 'application/json',
                   },
-                  body: JSON.stringify({
-                    action: 'createEvent',
-                    bookingData
-                  })
+                  body: JSON.stringify({ action: 'getAuthUrl' })
                 }
               );
 
-              if (!response.ok) {
-                console.error('Failed to create Google Calendar event:', await response.text());
-              } else {
-                console.log('Google Calendar event created successfully');
+              if (!authResponse.ok) {
+                throw new Error('Failed to get authorization URL');
               }
-            } catch (calendarError) {
-              console.error('Error creating Google Calendar event:', calendarError);
-            }
 
-            reply = "Perfect! Your appointment has been booked and added to the calendar. You'll receive a confirmation email shortly. Is there anything else I can help you with?";
-            bookingState = { step: 'initial' };
+              const { url } = await authResponse.json();
+              reply = `Perfect! Your appointment has been booked. To add it to your Google Calendar, please authorize access by clicking this link: ${url}. After authorizing, the event will be created automatically. Is there anything else I can help you with?`;
+              bookingState = { step: 'initial' };
+            } catch (calendarError) {
+              console.error('Error with Google Calendar:', calendarError);
+              reply = "Your appointment has been booked, but there was an issue connecting to Google Calendar. You may need to add it to your calendar manually. Is there anything else I can help you with?";
+              bookingState = { step: 'initial' };
+            }
           } catch (error) {
             console.error('Full booking error:', error);
             reply = "I'm sorry, there was an error creating your booking. Please try again.";
