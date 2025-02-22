@@ -46,6 +46,14 @@ export const ChatWidget = () => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, [showGreeting, isOpen]);
 
+  const calculateDelay = (text: string) => {
+    // Base delay of 500ms
+    const baseDelay = 500;
+    // Add 20ms per character, with a maximum of 2000ms
+    const characterDelay = Math.min(text.length * 20, 2000);
+    return baseDelay + characterDelay;
+  };
+
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
@@ -63,6 +71,12 @@ export const ChatWidget = () => {
       });
 
       if (error) throw error;
+
+      // Calculate delay based on response length
+      const delay = calculateDelay(data.reply);
+
+      // Add artificial delay before showing bot response
+      await new Promise(resolve => setTimeout(resolve, delay));
 
       setMessages((prev) => [...prev, { text: data.reply, isBot: true }]);
       setBookingState(data.state);
