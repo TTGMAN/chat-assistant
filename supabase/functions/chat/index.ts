@@ -241,17 +241,19 @@ serve(async (req) => {
               }
 
               const authData = await authResponse.json();
-              console.log('Auth response:', authData); // Debug log
+              console.log('Auth response:', authData);
               
               if (authData && authData.url) {
-                reply = `Perfect! Your appointment has been booked. To add it to your Google Calendar, please authorize access by clicking this link: ${authData.url}. After authorizing, the event will be created automatically. Is there anything else I can help you with?`;
+                const formattedDate = format(startTime, "MMMM do, yyyy 'at' h:mm a");
+                reply = `Perfect! Your appointment has been booked:\n\nTitle: ${bookingState.title}\nDate: ${formattedDate}\nEmail: ${bookingState.email}\n\nAdd this event to your Google Calendar:\nhttps://calendar.google.com/calendar/r/eventedit?text=${encodeURIComponent(bookingState.title)}&dates=${startTime.toISOString().replace(/[-:.]/g, '')}\/${endTime.toISOString().replace(/[-:.]/g, '')}&details=${encodeURIComponent(`Appointment booked via Booking Assistant`)}&add=${encodeURIComponent(bookingState.email)}`;
               } else {
                 throw new Error('Invalid authorization URL response');
               }
               bookingState = { step: 'initial' };
             } catch (calendarError) {
               console.error('Error with Google Calendar:', calendarError);
-              reply = "Your appointment has been booked, but there was an issue connecting to Google Calendar. You may need to add it to your calendar manually. Is there anything else I can help you with?";
+              const formattedDate = format(startTime, "MMMM do, yyyy 'at' h:mm a");
+              reply = `Perfect! Your appointment has been booked:\n\nTitle: ${bookingState.title}\nDate: ${formattedDate}\nEmail: ${bookingState.email}\n\nHowever, there was an issue connecting to Google Calendar. You may need to add it to your calendar manually.`;
               bookingState = { step: 'initial' };
             }
           } catch (error) {
