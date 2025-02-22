@@ -1,3 +1,4 @@
+
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
@@ -239,8 +240,14 @@ serve(async (req) => {
                 throw new Error('Failed to get authorization URL');
               }
 
-              const { url } = await authResponse.json();
-              reply = `Perfect! Your appointment has been booked. To add it to your Google Calendar, please authorize access by clicking this link: ${url}. After authorizing, the event will be created automatically. Is there anything else I can help you with?`;
+              const authData = await authResponse.json();
+              console.log('Auth response:', authData); // Debug log
+              
+              if (authData && authData.url) {
+                reply = `Perfect! Your appointment has been booked. To add it to your Google Calendar, please authorize access by clicking this link: ${authData.url}. After authorizing, the event will be created automatically. Is there anything else I can help you with?`;
+              } else {
+                throw new Error('Invalid authorization URL response');
+              }
               bookingState = { step: 'initial' };
             } catch (calendarError) {
               console.error('Error with Google Calendar:', calendarError);
