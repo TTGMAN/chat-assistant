@@ -1,6 +1,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { ChatMessage } from "./ChatMessage";
+import { TypingIndicator } from "./TypingIndicator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { X, MessageCircle, Send } from "lucide-react";
@@ -20,6 +21,7 @@ export const ChatWidget = () => {
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const [bookingState, setBookingState] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -29,7 +31,7 @@ export const ChatWidget = () => {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, isTyping]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -61,6 +63,7 @@ export const ChatWidget = () => {
     setMessages((prev) => [...prev, { text: userMessage, isBot: false }]);
     setInput("");
     setIsLoading(true);
+    setIsTyping(true);
 
     try {
       const { data, error } = await supabase.functions.invoke('chat', {
@@ -78,10 +81,12 @@ export const ChatWidget = () => {
       // Add artificial delay before showing bot response
       await new Promise(resolve => setTimeout(resolve, delay));
 
+      setIsTyping(false);
       setMessages((prev) => [...prev, { text: data.reply, isBot: true }]);
       setBookingState(data.state);
     } catch (error) {
       console.error('Error sending message:', error);
+      setIsTyping(false);
       setMessages((prev) => [
         ...prev,
         { text: "Sorry, I'm having trouble responding right now. Please try again later.", isBot: true },
@@ -153,6 +158,7 @@ export const ChatWidget = () => {
                 {messages.map((msg, idx) => (
                   <ChatMessage key={idx} message={msg.text} isBot={msg.isBot} />
                 ))}
+                {isTyping && <TypingIndicator />}
                 <div ref={messagesEndRef} />
               </div>
 

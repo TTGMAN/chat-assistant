@@ -105,17 +105,50 @@ serve(async (req) => {
 
           bookingState.date = parsedDate.toISOString();
           
-          const hours = [9, 10, 11, 13, 14, 15, 16];
-          const availableSlots = hours
-            .filter(hour => isTimeSlotAvailable(parsedDate!, hour))
-            .map(hour => formatTimeSlot(hour));
+          // Check existing bookings for this date
+          const { data: existingBookings, error: bookingsError } = await supabase
+            .from('calendar_bookings')
+            .select('start_time, end_time')
+            .gte('start_time', set(parsedDate, { hours: 0, minutes: 0, seconds: 0 }).toISOString())
+            .lte('start_time', set(parsedDate, { hours: 23, minutes: 59, seconds: 59 }).toISOString());
 
-          if (availableSlots.length === 0) {
+          if (bookingsError) {
+            console.error('Error checking bookings:', bookingsError);
+            reply = "Sorry, there was an error checking available time slots. Please try again.";
+            break;
+          }
+
+          // Convert booked times to hours
+          const bookedHours = new Set(
+            existingBookings?.map(booking => new Date(booking.start_time).getHours()) || []
+          );
+
+          // Define all possible hours
+          const allHours = [9, 10, 11, 13, 14, 15, 16];
+          
+          // Filter out booked hours and past hours for today
+          const availableHours = allHours.filter(hour => {
+            if (bookedHours.has(hour)) return false;
+            
+            if (isToday(parsedDate)) {
+              const currentHour = new Date().getHours();
+              return hour > currentHour;
+            }
+            
+            return true;
+          });
+
+          if (availableHours.length === 0) {
             reply = "Sorry, there are no available time slots for this date. Please choose another date.";
             break;
           }
 
-          reply = `Perfect! I can offer these time slots on ${format(parsedDate, 'MM/dd/yyyy')}: ${availableSlots.map(slot => slot.split(':')[0]).join(', ')}. Which hour works best for you?`;
+          const formattedDate = format(parsedDate, 'EEEE, MMMM do, yyyy');
+          const timeOptions = availableHours
+            .map(hour => `${hour}:00`)
+            .join(', ');
+
+          reply = `Perfect! For ${formattedDate}, I can offer these available time slots: ${timeOptions}. Which hour works best for you?`;
           bookingState.step = 'time';
         } else {
           reply = "I couldn't understand that date. Please provide a date in MM/DD/YYYY format, or say 'tomorrow' or 'next week'.";
