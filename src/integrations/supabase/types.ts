@@ -13,9 +13,11 @@ export type Database = {
         Row: {
           booker_email: string
           created_at: string
+          customer_name: string | null
           description: string | null
           end_time: string
           id: string
+          phone_number: string | null
           start_time: string
           status: string | null
           title: string
@@ -23,9 +25,11 @@ export type Database = {
         Insert: {
           booker_email: string
           created_at?: string
+          customer_name?: string | null
           description?: string | null
           end_time: string
           id?: string
+          phone_number?: string | null
           start_time: string
           status?: string | null
           title: string
@@ -33,9 +37,11 @@ export type Database = {
         Update: {
           booker_email?: string
           created_at?: string
+          customer_name?: string | null
           description?: string | null
           end_time?: string
           id?: string
+          phone_number?: string | null
           start_time?: string
           status?: string | null
           title?: string
