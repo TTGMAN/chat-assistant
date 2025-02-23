@@ -189,14 +189,29 @@ serve(async (req) => {
               break;
             }
 
-            const { error } = await supabase
+            const { data, error } = await supabase
               .from('calendar_bookings')
-              .insert([bookingData]);
+              .insert([bookingData])
+              .select()
+              .single();
 
             if (error) throw error;
 
             reply = "Perfect! Your appointment has been confirmed. We've sent the details to your email. We look forward to seeing you!";
             bookingState = { step: 'initial' };
+
+            // Return the booking ID along with the reply
+            return new Response(
+              JSON.stringify({ 
+                reply, 
+                state: bookingState,
+                bookingId: data.id 
+              }),
+              {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+              },
+            );
+
           } catch (error) {
             console.error('Booking error:', error);
             reply = "I'm sorry, there was an error creating your booking. Please try again.";

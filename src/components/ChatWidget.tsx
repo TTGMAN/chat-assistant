@@ -11,13 +11,14 @@ import { supabase } from "@/integrations/supabase/client";
 interface Message {
   text: string;
   isBot: boolean;
+  timestamp: Date;
 }
 
 export const ChatWidget = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [showGreeting, setShowGreeting] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
-    { text: "Hi! I can help you book an appointment. Would you like to schedule one?", isBot: true },
+    { text: "Hi! I can help you book an appointment. Would you like to schedule one?", isBot: true, timestamp: new Date() },
   ]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -49,18 +50,33 @@ export const ChatWidget = () => {
   }, [showGreeting, isOpen]);
 
   const calculateDelay = (text: string) => {
-    // Base delay of 500ms
     const baseDelay = 500;
-    // Add 20ms per character, with a maximum of 2000ms
     const characterDelay = Math.min(text.length * 20, 2000);
     return baseDelay + characterDelay;
+  };
+
+  const saveChatLog = async (bookingId: string) => {
+    try {
+      await supabase.from('chat_logs').insert([{
+        messages: messages.map(m => ({
+          text: m.text,
+          isBot: m.isBot,
+          timestamp: m.timestamp.toISOString()
+        })),
+        booking_id: bookingId,
+        customer_name: bookingState.customerName,
+        customer_email: bookingState.email
+      }]);
+    } catch (error) {
+      console.error('Error saving chat log:', error);
+    }
   };
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
     const userMessage = input.trim();
-    setMessages((prev) => [...prev, { text: userMessage, isBot: false }]);
+    setMessages((prev) => [...prev, { text: userMessage, isBot: false, timestamp: new Date() }]);
     setInput("");
     setIsLoading(true);
     setIsTyping(true);
@@ -75,21 +91,28 @@ export const ChatWidget = () => {
 
       if (error) throw error;
 
-      // Calculate delay based on response length
       const delay = calculateDelay(data.reply);
-
-      // Add artificial delay before showing bot response
       await new Promise(resolve => setTimeout(resolve, delay));
 
       setIsTyping(false);
-      setMessages((prev) => [...prev, { text: data.reply, isBot: true }]);
+
+      // If this is a booking confirmation response, save the chat log
+      if (data.bookingId) {
+        await saveChatLog(data.bookingId);
+      }
+
+      setMessages((prev) => [...prev, { text: data.reply, isBot: true, timestamp: new Date() }]);
       setBookingState(data.state);
     } catch (error) {
       console.error('Error sending message:', error);
       setIsTyping(false);
       setMessages((prev) => [
         ...prev,
-        { text: "Sorry, I'm having trouble responding right now. Please try again later.", isBot: true },
+        { 
+          text: "Sorry, I'm having trouble responding right now. Please try again later.", 
+          isBot: true, 
+          timestamp: new Date() 
+        },
       ]);
     } finally {
       setIsLoading(false);
@@ -156,7 +179,12 @@ export const ChatWidget = () => {
 
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.map((msg, idx) => (
-                  <ChatMessage key={idx} message={msg.text} isBot={msg.isBot} />
+                  <ChatMessage 
+                    key={idx} 
+                    message={msg.text} 
+                    isBot={msg.isBot} 
+                    timestamp={msg.timestamp}
+                  />
                 ))}
                 {isTyping && <TypingIndicator />}
                 <div ref={messagesEndRef} />
