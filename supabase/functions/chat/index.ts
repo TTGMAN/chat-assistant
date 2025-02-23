@@ -13,72 +13,54 @@ const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-interface BookingState {
-  step: 'initial' | 'date' | 'time' | 'title' | 'email' | 'confirm';
-  date?: string;
-  time?: string;
-  title?: string;
-  email?: string;
-}
-
-// Helper function to validate if a time slot is available
-const isTimeSlotAvailable = (date: Date, hour: number): boolean => {
-  const now = new Date();
-  const slotTime = set(date, { hours: hour, minutes: 0, seconds: 0, milliseconds: 0 });
-  
-  if (isToday(date)) {
-    return !isBefore(slotTime, now);
-  }
-  
-  return true;
-}
-
-// Helper function to format hour to time string
-const formatTimeSlot = (hour: number): string => {
-  return `${hour.toString().padStart(2, '0')}:00`;
-}
-
 serve(async (req) => {
-  console.log('Received request:', req.method);
-
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const contentType = req.headers.get('content-type');
-    if (!contentType?.includes('application/json')) {
-      throw new Error('Content-Type must be application/json');
-    }
-
-    let body;
-    try {
-      body = await req.json();
-      console.log('Parsed request body:', body);
-    } catch (e) {
-      console.error('JSON parsing error:', e);
-      throw new Error('Invalid JSON payload');
-    }
-
-    const { message, state } = body;
-
-    if (!message) {
-      throw new Error('Message is required');
-    }
-
-    console.log('Processing message:', message, 'Current state:', state);
-
-    let bookingState: BookingState = state || { step: 'initial' };
+    const { message, state } = await req.json();
     let reply = '';
+    let bookingState = state || { step: 'initial' };
 
     switch (bookingState.step) {
       case 'initial':
-        if (message.toLowerCase().includes('yes') || message.toLowerCase().includes('book') || message.toLowerCase().includes('appointment')) {
-          reply = "Great! Let's schedule your appointment. What date would you like to book? (e.g., tomorrow, next Monday, or MM/DD/YYYY)";
-          bookingState.step = 'date';
+        if (message.toLowerCase().includes('yes') || message.toLowerCase().includes('schedule') || message.toLowerCase().includes('book')) {
+          reply = "Great! First, could you please tell me your name?";
+          bookingState.step = 'name';
         } else {
-          reply = "I can help you book an appointment. Would you like to schedule one?";
+          reply = "I understand. Feel free to let me know when you'd like to schedule an appointment!";
         }
+        break;
+
+      case 'name':
+        bookingState.customerName = message;
+        bookingState.title = `${message} - Appointment`;
+        reply = "Thanks! Could you please provide your phone number?";
+        bookingState.step = 'phone';
+        break;
+
+      case 'phone':
+        bookingState.phone = message;
+        reply = "Great! Now, please provide your email address.";
+        bookingState.step = 'email';
+        break;
+
+      case 'email':
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(message)) {
+          reply = "That doesn't look like a valid email address. Please try again.";
+          break;
+        }
+        bookingState.email = message;
+        reply = "Could you briefly describe the reason for your appointment?";
+        bookingState.step = 'description';
+        break;
+
+      case 'description':
+        bookingState.description = message;
+        reply = "Thank you! Now, what date would you like to schedule? (MM/DD/YYYY, or say 'tomorrow' or 'next week')";
+        bookingState.step = 'date';
         break;
 
       case 'date':
@@ -105,7 +87,6 @@ serve(async (req) => {
 
           bookingState.date = parsedDate.toISOString();
           
-          // Check existing bookings for this date
           const { data: existingBookings, error: bookingsError } = await supabase
             .from('calendar_bookings')
             .select('start_time, end_time')
@@ -118,23 +99,17 @@ serve(async (req) => {
             break;
           }
 
-          // Convert booked times to hours
           const bookedHours = new Set(
             existingBookings?.map(booking => new Date(booking.start_time).getHours()) || []
           );
 
-          // Define all possible hours
           const allHours = [9, 10, 11, 13, 14, 15, 16];
-          
-          // Filter out booked hours and past hours for today
           const availableHours = allHours.filter(hour => {
             if (bookedHours.has(hour)) return false;
-            
             if (isToday(parsedDate)) {
               const currentHour = new Date().getHours();
               return hour > currentHour;
             }
-            
             return true;
           });
 
@@ -156,61 +131,33 @@ serve(async (req) => {
         break;
 
       case 'time':
-        const timeInput = message.trim().replace(/[^\d]/g, '');
-        const hour = parseInt(timeInput);
-        const availableHours = [9, 10, 11, 13, 14, 15, 16];
-        
-        if (availableHours.includes(hour)) {
-          const timeSlot = formatTimeSlot(hour);
-          const bookingDate = parseISO(bookingState.date!);
-          
-          if (!isTimeSlotAvailable(bookingDate, hour)) {
-            reply = "Sorry, this time slot is no longer available. Please choose another time.";
-            break;
+        const timeMatch = message.match(/(\d{1,2}):?(\d{2})?/);
+        if (timeMatch) {
+          const hour = parseInt(timeMatch[1]);
+          if (hour >= 9 && hour <= 16) {
+            bookingState.time = `${hour}:00`;
+            reply = `Great! Here's a summary of your appointment:\n\nName: ${bookingState.customerName}\nPhone: ${bookingState.phone}\nEmail: ${bookingState.email}\nReason: ${bookingState.description}\nDate: ${format(parseISO(bookingState.date), 'MMMM do, yyyy')}\nTime: ${bookingState.time}\n\nWould you like to confirm this booking?`;
+            bookingState.step = 'confirm';
+          } else {
+            reply = "Please choose a time between 9:00 AM and 4:00 PM.";
           }
-          
-          bookingState.time = timeSlot;
-          reply = "Great choice! Please provide a brief title for your appointment.";
-          bookingState.step = 'title';
         } else {
-          reply = `Please select from these available hours: ${availableHours.join(', ')}`;
-        }
-        break;
-
-      case 'title':
-        bookingState.title = message;
-        reply = "Almost done! Please provide your email address for confirmation.";
-        bookingState.step = 'email';
-        break;
-
-      case 'email':
-        if (message.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
-          bookingState.email = message;
-          const bookingDate = parseISO(bookingState.date!);
-          reply = `Great! Let me confirm your booking:\nDate: ${format(bookingDate, 'MM/dd/yyyy')}\nTime: ${bookingState.time}\nTitle: ${bookingState.title}\nEmail: ${bookingState.email}\n\nWould you like me to confirm this booking? (Yes/No)`;
-          bookingState.step = 'confirm';
-        } else {
-          reply = "That doesn't look like a valid email address. Please try again.";
+          reply = "I couldn't understand that time. Please specify an hour (e.g., '10:00' or just '10').";
         }
         break;
 
       case 'confirm':
         if (message.toLowerCase().includes('yes')) {
           try {
-            if (!bookingState.date || !bookingState.time || !bookingState.title || !bookingState.email) {
-              throw new Error('Missing booking details');
-            }
-
-            const bookingDate = parseISO(bookingState.date);
             const [hours, minutes] = bookingState.time.split(':');
-            const startTime = set(bookingDate, {
+            const startTime = set(parseISO(bookingState.date), {
               hours: parseInt(hours),
               minutes: parseInt(minutes),
               seconds: 0,
               milliseconds: 0
             });
             
-            const endTime = set(bookingDate, {
+            const endTime = set(parseISO(bookingState.date), {
               hours: parseInt(hours) + 1,
               minutes: parseInt(minutes),
               seconds: 0,
@@ -219,76 +166,39 @@ serve(async (req) => {
 
             const bookingData = {
               title: bookingState.title,
+              description: bookingState.description,
               start_time: startTime.toISOString(),
               end_time: endTime.toISOString(),
               booker_email: bookingState.email,
-              status: 'pending'
+              customer_name: bookingState.customerName,
+              phone_number: bookingState.phone,
+              status: 'confirmed'
             };
 
-            // First check if the slot is already booked
             const { data: existingBookings, error: checkError } = await supabase
               .from('calendar_bookings')
               .select('*')
               .eq('start_time', startTime.toISOString())
               .eq('end_time', endTime.toISOString());
 
-            if (checkError) {
-              console.error('Error checking existing bookings:', checkError);
-              throw checkError;
-            }
+            if (checkError) throw checkError;
 
             if (existingBookings && existingBookings.length > 0) {
-              console.log('Time slot already booked:', existingBookings);
               reply = "I'm sorry, but this time slot has just been taken. Please choose another time.";
               bookingState.step = 'time';
               break;
             }
 
-            // Insert the new booking
-            const { data, error } = await supabase
+            const { error } = await supabase
               .from('calendar_bookings')
-              .insert([bookingData])
-              .select();
+              .insert([bookingData]);
 
-            if (error) {
-              console.error('Error inserting booking:', error);
-              throw error;
-            }
+            if (error) throw error;
 
-            // Get Google Calendar authorization URL
-            try {
-              const authResponse = await fetch(
-                `${supabaseUrl}/functions/v1/google-calendar`,
-                {
-                  method: 'POST',
-                  headers: {
-                    'Authorization': `Bearer ${supabaseKey}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({ action: 'getAuthUrl' })
-                }
-              );
-
-              if (!authResponse.ok) {
-                throw new Error('Failed to get authorization URL');
-              }
-
-              const authData = await authResponse.json();
-              console.log('Auth response:', authData); // Debug log
-              
-              if (authData && authData.url) {
-                reply = `Perfect! Your appointment has been booked. To add it to your Google Calendar, please authorize access by clicking this link: ${authData.url}. After authorizing, the event will be created automatically. Is there anything else I can help you with?`;
-              } else {
-                throw new Error('Invalid authorization URL response');
-              }
-              bookingState = { step: 'initial' };
-            } catch (calendarError) {
-              console.error('Error with Google Calendar:', calendarError);
-              reply = "Your appointment has been booked, but there was an issue connecting to Google Calendar. You may need to add it to your calendar manually. Is there anything else I can help you with?";
-              bookingState = { step: 'initial' };
-            }
+            reply = "Perfect! Your appointment has been confirmed. We've sent the details to your email. We look forward to seeing you!";
+            bookingState = { step: 'initial' };
           } catch (error) {
-            console.error('Full booking error:', error);
+            console.error('Booking error:', error);
             reply = "I'm sorry, there was an error creating your booking. Please try again.";
             bookingState = { step: 'date' };
           }
@@ -299,37 +209,24 @@ serve(async (req) => {
         break;
 
       default:
-        reply = "I can help you book an appointment. Would you like to schedule one?";
+        reply = "I'm not sure how to help with that. Would you like to schedule an appointment?";
         bookingState = { step: 'initial' };
     }
 
-    console.log('Sending response:', { reply, state: bookingState });
-
     return new Response(
-      JSON.stringify({ 
-        reply,
-        state: bookingState
-      }), 
+      JSON.stringify({ reply, state: bookingState }),
       {
-        headers: { 
-          ...corsHeaders, 
-          'Content-Type': 'application/json' 
-        },
-      }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      },
     );
   } catch (error) {
-    console.error('Error in chat function:', error);
+    console.error('Error:', error);
     return new Response(
-      JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'An error occurred while processing your request'
-      }), 
+      JSON.stringify({ error: 'Internal server error' }),
       {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 500,
-        headers: { 
-          ...corsHeaders, 
-          'Content-Type': 'application/json' 
-        },
-      }
+      },
     );
   }
 });
