@@ -1,3 +1,4 @@
+
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.4'
 import { corsHeaders } from '../_shared/cors.ts'
@@ -8,7 +9,7 @@ serve(async (req) => {
   }
 
   try {
-    const { message, state, messages } = await req.json()
+    const { message, state } = await req.json()
 
     // Create a Supabase client
     const supabase = createClient(
@@ -40,41 +41,25 @@ serve(async (req) => {
       bookingState.step = 'confirm'
     }
 
-    // When confirming a booking, save the chat log
+    // Handle booking confirmation
     if (bookingState.step === 'confirm' && message.toLowerCase().includes('yes')) {
-      try {
-        const { data, error } = await supabase
-          .from('calendar_bookings')
-          .insert({
-            booker_email: bookingState.email,
-            customer_name: bookingState.customerName,
-            title: 'Appointment Booking',
-            description: 'Booked via Chatbot',
-            start_time: bookingState.date + 'T' + bookingState.time,
-            end_time: bookingState.date + 'T' + bookingState.time,
-          })
-          .select()
-          .single()
+      const { data, error } = await supabase
+        .from('calendar_bookings')
+        .insert({
+          booker_email: bookingState.email,
+          customer_name: bookingState.customerName,
+          title: 'Appointment Booking',
+          description: 'Booked via Chatbot',
+          start_time: bookingState.date + 'T' + bookingState.time,
+          end_time: bookingState.date + 'T' + bookingState.time,
+        })
+        .select()
+        .single()
 
-        if (error) throw error
+      if (error) throw error
 
-        // After successful booking creation, save the chat log
-        const { error: chatLogError } = await supabase
-          .from('chat_logs')
-          .insert({
-            messages,
-            booking_id: data.id,
-            customer_name: bookingState.customerName,
-            customer_email: bookingState.email
-          })
-
-        if (chatLogError) throw chatLogError
-
-        reply = "Awesome! Your appointment has been booked. We'll see you then!"
-        bookingState = { step: 'complete' }
-      } catch (error) {
-        console.error('Error saving chat log:', error)
-      }
+      reply = "Awesome! Your appointment has been booked. We'll see you then!"
+      bookingState = { step: 'complete' }
     }
 
     return new Response(

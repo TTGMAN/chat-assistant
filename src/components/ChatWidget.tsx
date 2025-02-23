@@ -55,7 +55,6 @@ export const ChatWidget = () => {
     return baseDelay + characterDelay;
   };
 
-  // Create a custom function to store chat logs directly in the Edge Function
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
