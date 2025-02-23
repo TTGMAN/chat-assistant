@@ -55,23 +55,7 @@ export const ChatWidget = () => {
     return baseDelay + characterDelay;
   };
 
-  const saveChatLog = async (bookingId: string) => {
-    try {
-      await supabase.from('chat_logs').insert([{
-        messages: messages.map(m => ({
-          text: m.text,
-          isBot: m.isBot,
-          timestamp: m.timestamp.toISOString()
-        })),
-        booking_id: bookingId,
-        customer_name: bookingState.customerName,
-        customer_email: bookingState.email
-      }]);
-    } catch (error) {
-      console.error('Error saving chat log:', error);
-    }
-  };
-
+  // Create a custom function to store chat logs directly in the Edge Function
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
@@ -85,7 +69,12 @@ export const ChatWidget = () => {
       const { data, error } = await supabase.functions.invoke('chat', {
         body: { 
           message: userMessage,
-          state: bookingState
+          state: bookingState,
+          messages: messages.map(m => ({
+            text: m.text,
+            isBot: m.isBot,
+            timestamp: m.timestamp.toISOString()
+          }))
         },
       });
 
@@ -95,12 +84,6 @@ export const ChatWidget = () => {
       await new Promise(resolve => setTimeout(resolve, delay));
 
       setIsTyping(false);
-
-      // If this is a booking confirmation response, save the chat log
-      if (data.bookingId) {
-        await saveChatLog(data.bookingId);
-      }
-
       setMessages((prev) => [...prev, { text: data.reply, isBot: true, timestamp: new Date() }]);
       setBookingState(data.state);
     } catch (error) {
