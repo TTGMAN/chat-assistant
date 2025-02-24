@@ -7,7 +7,6 @@ import { corsHeaders } from "../_shared/cors.ts";
 const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
 
 serve(async (req) => {
-  // Handle CORS
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -17,7 +16,6 @@ serve(async (req) => {
     const { message, state, messages } = await req.json();
     console.log('Received request:', { message, state });
 
-    // Create a Supabase client
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -26,7 +24,6 @@ serve(async (req) => {
     let reply = '';
     let bookingState = state || { step: 'initial' };
 
-    // Check available time slots for a given date
     const getAvailableSlots = async (date: string) => {
       console.log('Checking availability for date:', date);
       const { data: bookings, error } = await supabase
@@ -39,8 +36,6 @@ serve(async (req) => {
         throw error;
       }
 
-      console.log('Found bookings:', bookings);
-
       const allSlots = ['09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00'];
       const bookedSlots = bookings?.map(b => {
         const time = new Date(b.start_time);
@@ -52,27 +47,33 @@ serve(async (req) => {
       return availableSlots;
     };
 
-    // Use GPT to process the user's message and generate a response
     const processWithGPT = async (userMessage: string, currentState: any, availableSlots?: string[]) => {
       console.log('Processing message with GPT:', userMessage);
       try {
         const messages = [
           {
             role: "system",
-            content: `You are a friendly booking assistant. Extract relevant booking information from user messages.
+            content: `You are a friendly booking assistant. Your task is to extract booking information.
             Current state: ${JSON.stringify(currentState)}
             ${availableSlots ? `Available time slots: ${availableSlots.join(', ')}` : ''}
             
-            Rules:
-            - Be friendly and conversational
-            - Extract information even from messages with typos
-            - If collecting a name, return it in name field
-            - If collecting an email, validate and return it in email field
-            - If collecting a date, return it in YYYY-MM-DD format in date field
-            - If collecting a time, only suggest from available slots
-            - Use different variations of questions to make conversation natural
-            - If information is invalid, explain why and ask again
-            Do not mention that you are an AI. Just process the information and respond naturally.`
+            IMPORTANT: When responding, you must:
+            1. If you detect a name, include a line that starts with "NAME:" followed by the name
+            2. If you detect an email, include a line that starts with "EMAIL:" followed by the email
+            3. If you detect a date, include a line that starts with "DATE:" followed by the date in YYYY-MM-DD format
+            4. If you detect a time, include a line that starts with "TIME:" followed by the time in HH:MM format
+
+            Only extract information that matches the current step. Do not try to extract other information.
+            Current step is: ${currentState.step}
+
+            Example response when asking for name:
+            Nice to meet you! 
+            NAME: John Smith
+
+            Example response when asking for email:
+            Thanks! 
+            EMAIL: john@example.com
+            `
           },
           {
             role: "user",
@@ -80,6 +81,7 @@ serve(async (req) => {
           }
         ];
 
+        console.log('Sending request to GPT...');
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -94,7 +96,7 @@ serve(async (req) => {
         });
 
         const data = await response.json();
-        console.log('GPT response:', data);
+        console.log('GPT raw response:', data);
         
         if (!data.choices?.[0]?.message?.content) {
           console.error('Invalid GPT response:', data);
@@ -102,14 +104,15 @@ serve(async (req) => {
         }
 
         const gptResponse = data.choices[0].message.content;
-        
-        // Parse the response for any extracted information
+        console.log('GPT processed response:', gptResponse);
+
+        // Improved extraction with more specific patterns
         const extracted = {
-          reply: gptResponse,
-          name: gptResponse.match(/name:(.*?)(\n|$)/i)?.[1]?.trim(),
-          email: gptResponse.match(/email:(.*?)(\n|$)/i)?.[1]?.trim(),
-          date: gptResponse.match(/date:(.*?)(\n|$)/i)?.[1]?.trim(),
-          time: gptResponse.match(/time:(.*?)(\n|$)/i)?.[1]?.trim(),
+          reply: gptResponse.replace(/NAME:|EMAIL:|DATE:|TIME:/g, '').trim(),
+          name: gptResponse.match(/NAME:\s*([^\n]+)/i)?.[1]?.trim(),
+          email: gptResponse.match(/EMAIL:\s*([^\n]+)/i)?.[1]?.trim(),
+          date: gptResponse.match(/DATE:\s*([^\n]+)/i)?.[1]?.trim(),
+          time: gptResponse.match(/TIME:\s*([^\n]+)/i)?.[1]?.trim(),
         };
 
         console.log('Extracted information:', extracted);
@@ -120,21 +123,20 @@ serve(async (req) => {
       }
     };
 
-    // Process the current step
-    console.log('Current booking state:', bookingState);
-
     if (bookingState.step === 'initial') {
-      const processed = await processWithGPT(message, bookingState);
       reply = "I'd be happy to help you book an appointment! Could you tell me your name?";
       bookingState.step = 'name';
     } else if (bookingState.step === 'name') {
+      console.log('Processing name step with message:', message);
       const processed = await processWithGPT(message, bookingState);
+      console.log('Name processing result:', processed);
+      
       if (processed.name) {
         bookingState.customerName = processed.name;
         reply = `Thanks ${processed.name}! What's your email address so I can send you the booking confirmation?`;
         bookingState.step = 'email';
       } else {
-        reply = "I didn't quite catch your name. Could you please tell me again?";
+        reply = "I didn't quite catch your name. Could you please tell me your full name?";
       }
     } else if (bookingState.step === 'email') {
       const processed = await processWithGPT(message, bookingState);
@@ -172,7 +174,7 @@ serve(async (req) => {
     } else if (bookingState.step === 'confirm') {
       const processed = await processWithGPT(message, bookingState);
       if (processed.reply.toLowerCase().includes('yes')) {
-        console.log('Attempting to create booking:', {
+        console.log('Creating booking:', {
           booker_email: bookingState.email,
           customer_name: bookingState.customerName,
           start_time: `${bookingState.date}T${bookingState.time}`,
