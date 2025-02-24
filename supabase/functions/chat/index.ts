@@ -7,12 +7,15 @@ import { corsHeaders } from "../_shared/cors.ts";
 const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
 
 serve(async (req) => {
+  // Handle CORS
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const { message, state } = await req.json();
+    console.log('Chat function invoked');
+    const { message, state, messages } = await req.json();
+    console.log('Received request:', { message, state });
 
     // Create a Supabase client
     const supabase = createClient(
@@ -25,10 +28,18 @@ serve(async (req) => {
 
     // Check available time slots for a given date
     const getAvailableSlots = async (date: string) => {
-      const { data: bookings } = await supabase
+      console.log('Checking availability for date:', date);
+      const { data: bookings, error } = await supabase
         .from('calendar_bookings')
         .select('start_time')
         .eq('start_time::date', date);
+
+      if (error) {
+        console.error('Error fetching bookings:', error);
+        throw error;
+      }
+
+      console.log('Found bookings:', bookings);
 
       const allSlots = ['09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00'];
       const bookedSlots = bookings?.map(b => {
@@ -36,11 +47,14 @@ serve(async (req) => {
         return `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
       }) || [];
 
-      return allSlots.filter(slot => !bookedSlots.includes(slot));
+      const availableSlots = allSlots.filter(slot => !bookedSlots.includes(slot));
+      console.log('Available slots:', availableSlots);
+      return availableSlots;
     };
 
     // Use GPT to process the user's message and generate a response
     const processWithGPT = async (userMessage: string, currentState: any, availableSlots?: string[]) => {
+      console.log('Processing message with GPT:', userMessage);
       try {
         const messages = [
           {
@@ -80,6 +94,13 @@ serve(async (req) => {
         });
 
         const data = await response.json();
+        console.log('GPT response:', data);
+        
+        if (!data.choices?.[0]?.message?.content) {
+          console.error('Invalid GPT response:', data);
+          throw new Error('Invalid GPT response');
+        }
+
         const gptResponse = data.choices[0].message.content;
         
         // Parse the response for any extracted information
@@ -91,6 +112,7 @@ serve(async (req) => {
           time: gptResponse.match(/time:(.*?)(\n|$)/i)?.[1]?.trim(),
         };
 
+        console.log('Extracted information:', extracted);
         return extracted;
       } catch (error) {
         console.error('Error processing with GPT:', error);
@@ -99,6 +121,8 @@ serve(async (req) => {
     };
 
     // Process the current step
+    console.log('Current booking state:', bookingState);
+
     if (bookingState.step === 'initial') {
       const processed = await processWithGPT(message, bookingState);
       reply = "I'd be happy to help you book an appointment! Could you tell me your name?";
@@ -148,6 +172,12 @@ serve(async (req) => {
     } else if (bookingState.step === 'confirm') {
       const processed = await processWithGPT(message, bookingState);
       if (processed.reply.toLowerCase().includes('yes')) {
+        console.log('Attempting to create booking:', {
+          booker_email: bookingState.email,
+          customer_name: bookingState.customerName,
+          start_time: `${bookingState.date}T${bookingState.time}`,
+        });
+
         const { data, error } = await supabase
           .from('calendar_bookings')
           .insert({
@@ -161,7 +191,12 @@ serve(async (req) => {
           .select()
           .single();
 
-        if (error) throw error;
+        if (error) {
+          console.error('Error creating booking:', error);
+          throw error;
+        }
+
+        console.log('Booking created successfully:', data);
 
         reply = `Great! Your appointment has been booked for ${bookingState.date} at ${bookingState.time}. I've sent a confirmation email to ${bookingState.email}. Is there anything else I can help you with?`;
         bookingState = { step: 'complete' };
@@ -171,15 +206,23 @@ serve(async (req) => {
       }
     }
 
+    console.log('Sending response:', { reply, state: bookingState });
+
     return new Response(
       JSON.stringify({ reply, state: bookingState }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   } catch (error) {
     console.error('Error in chat function:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400
-    });
+    return new Response(
+      JSON.stringify({
+        error: 'Internal Server Error',
+        details: error.message
+      }),
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 500
+      }
+    );
   }
 });
