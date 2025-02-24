@@ -1,4 +1,3 @@
-
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
@@ -203,8 +202,8 @@ serve(async (req) => {
         reply = `Great! Your appointment has been booked for ${bookingState.date} at ${bookingState.time}. I've sent a confirmation email to ${bookingState.email}. Is there anything else I can help you with?`;
         bookingState = { step: 'complete' };
       } else {
-        reply = "No problem! Let's start over. What date would you like to book?";
-        bookingState.step = 'date';
+        reply = "No problem! Let's start over. Could you tell me your name?";
+        bookingState = { step: 'name' };
       }
     }
 
