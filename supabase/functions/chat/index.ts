@@ -5,6 +5,10 @@ import { corsHeaders } from "../_shared/cors.ts";
 
 const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
 
+const MAX_REQUESTS_PER_MINUTE = 20;
+const MAX_BOOKINGS_PER_DAY = 3;
+const MESSAGE_SIMILARITY_THRESHOLD = 0.9;
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -15,10 +19,73 @@ serve(async (req) => {
     const { message, state, messages } = await req.json();
     console.log('Received request:', { message, state });
 
+    const clientIp = req.headers.get('x-real-ip') || 'unknown';
+    
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
+
+    // Check rate limiting
+    const { data: rateLimit, error: rateLimitError } = await supabase
+      .from('chat_rate_limits')
+      .upsert(
+        { ip_address: clientIp },
+        { onConflict: 'ip_address' }
+      )
+      .select()
+      .single();
+
+    if (rateLimitError) {
+      console.error('Error checking rate limit:', rateLimitError);
+      throw rateLimitError;
+    }
+
+    const now = new Date();
+    const lastRequest = new Date(rateLimit.last_request);
+    const timeDiff = (now.getTime() - lastRequest.getTime()) / 1000; // in seconds
+
+    // Reset counter if it's been more than a minute
+    if (timeDiff > 60) {
+      await supabase
+        .from('chat_rate_limits')
+        .update({ request_count: 1, last_request: now.toISOString() })
+        .eq('ip_address', clientIp);
+    } else {
+      // Check if rate limit exceeded
+      if (rateLimit.request_count >= MAX_REQUESTS_PER_MINUTE) {
+        return new Response(
+          JSON.stringify({
+            reply: "I'm sorry, but you're sending too many messages. Please wait a minute and try again.",
+            state: state
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Increment request count
+      await supabase
+        .from('chat_rate_limits')
+        .update({
+          request_count: rateLimit.request_count + 1,
+          last_request: now.toISOString()
+        })
+        .eq('ip_address', clientIp);
+    }
+
+    // Check for message similarity with previous message
+    if (messages.length > 1) {
+      const lastMessage = messages[messages.length - 2].text;
+      if (message === lastMessage) {
+        return new Response(
+          JSON.stringify({
+            reply: "I notice you're sending the same message repeatedly. How can I help you differently?",
+            state: state
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
 
     let reply = '';
     let bookingState = state || { step: 'initial' };
@@ -173,12 +240,37 @@ serve(async (req) => {
     } else if (bookingState.step === 'confirm') {
       const processed = await processWithGPT(message, bookingState);
       if (processed.reply.toLowerCase().includes('yes')) {
+        // Check daily booking limit before creating booking
+        const today = new Date().toISOString().split('T')[0];
+        const { data: bookingCount, error: bookingCountError } = await supabase
+          .from('daily_booking_counts')
+          .select('booking_count')
+          .eq('email', bookingState.email)
+          .eq('booking_date', today)
+          .single();
+
+        if (bookingCountError && bookingCountError.code !== 'PGRST116') {
+          console.error('Error checking booking count:', bookingCountError);
+          throw bookingCountError;
+        }
+
+        const currentCount = bookingCount?.booking_count || 0;
+        if (currentCount >= MAX_BOOKINGS_PER_DAY) {
+          reply = `I'm sorry, but you've reached the maximum number of bookings (${MAX_BOOKINGS_PER_DAY}) allowed per day. Please try again tomorrow.`;
+          bookingState.step = 'complete';
+          return new Response(
+            JSON.stringify({ reply, state: bookingState }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
         console.log('Creating booking:', {
           booker_email: bookingState.email,
           customer_name: bookingState.customerName,
           start_time: `${bookingState.date}T${bookingState.time}`,
         });
 
+        // Start a transaction to create booking and update count
         const { data, error } = await supabase
           .from('calendar_bookings')
           .insert({
@@ -196,6 +288,15 @@ serve(async (req) => {
           console.error('Error creating booking:', error);
           throw error;
         }
+
+        // Update the daily booking count
+        await supabase
+          .from('daily_booking_counts')
+          .upsert({
+            email: bookingState.email,
+            booking_date: today,
+            booking_count: currentCount + 1
+          });
 
         console.log('Booking created successfully:', data);
 
