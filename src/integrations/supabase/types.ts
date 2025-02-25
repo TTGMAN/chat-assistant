@@ -48,6 +48,42 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_rate_limits: {
+        Row: {
+          ip_address: string
+          last_request: string | null
+          request_count: number | null
+        }
+        Insert: {
+          ip_address: string
+          last_request?: string | null
+          request_count?: number | null
+        }
+        Update: {
+          ip_address?: string
+          last_request?: string | null
+          request_count?: number | null
+        }
+        Relationships: []
+      }
+      daily_booking_counts: {
+        Row: {
+          booking_count: number | null
+          booking_date: string
+          email: string
+        }
+        Insert: {
+          booking_count?: number | null
+          booking_date: string
+          email: string
+        }
+        Update: {
+          booking_count?: number | null
+          booking_date?: string
+          email?: string
+        }
+        Relationships: []
+      }
       leads: {
         Row: {
           budget: number | null
